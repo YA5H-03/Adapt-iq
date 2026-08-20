@@ -958,6 +958,7 @@ button {
   font-size: 14px;
 }
 
+
 .timetable-setup-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

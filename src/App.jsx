@@ -3,7 +3,6 @@ import { Routes, Route } from "react-router-dom";
 import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import StudySetup from "./pages/StudySetup";
 import Dashboard from "./pages/Dashboard";
 import Syllabus from "./pages/Syllabus";
 import Timetable from "./pages/Timetable";
@@ -18,7 +17,6 @@ function App() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/study-setup" element={<StudySetup />} />
 
       {/* DASHBOARD SAAS APP WITH PERSISTENT SIDEBAR & NAVBAR */}
       <Route element={<Layout />}>
