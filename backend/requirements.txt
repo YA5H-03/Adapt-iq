@@ -1,0 +1,8 @@
+fastapi==0.116.1
+uvicorn[standard]==0.35.0
+firebase-admin==7.1.0
+# These releases provide Windows wheels for CPython 3.14, avoiding a local Rust build.
+pydantic[email]==2.13.4
+pydantic-settings==2.14.2
+httpx==0.28.1
+python-dotenv==1.1.1

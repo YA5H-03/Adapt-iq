@@ -1,16 +1,54 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
+import { createSubject, createModule } from "../lib/api";
 
 function Timetable() {
   const currentSyllabus = JSON.parse(localStorage.getItem("currentSyllabus")) || {};
-  const defaultExamDate = currentSyllabus.examDate || new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
-  const defaultTopics = currentSyllabus.syllabusText || `Unit 1: Data Structures & Arrays\nUnit 2: Linked Lists & Stacks\nUnit 3: Binary Trees & Traversal\nUnit 4: Graph Algorithms & BFS/DFS\nUnit 5: Sorting & Dynamic Programming`;
-  const defaultModules = defaultTopics.split("\n").filter(Boolean).map((name, index) => ({ id: `module-${index}`, name, weightage: 20 }));
-  const defaultConfidence = currentSyllabus.confidence === "Low" ? "Weak" : currentSyllabus.confidence === "Medium" ? "Average" : currentSyllabus.confidence === "High" ? "Strong" : "Average";
+  const defaultExamDate = currentSyllabus.examDate || "";
 
-  const [subjects, setSubjects] = useState([{ id: crypto.randomUUID(), name: "Computer Science & Data Structures", examDate: defaultExamDate, totalMarks: 100, modules: defaultModules, confidence: defaultConfidence }]);
-  const [dailyHours, setDailyHours] = useState(currentSyllabus.dailyHours || 4);
+  // Initialize subjects from currentSyllabus or syllabusText
+  const getInitialSubjects = () => {
+    if (currentSyllabus.subjects && currentSyllabus.subjects.length > 0) {
+      return currentSyllabus.subjects;
+    }
+    if (currentSyllabus.syllabusText) {
+      const topicLines = currentSyllabus.syllabusText
+        .split("\n")
+        .map((x) => x.trim())
+        .filter(Boolean);
+      if (topicLines.length > 0) {
+        return [
+          {
+            id: crypto.randomUUID(),
+            name: "Primary Subject",
+            examDate: defaultExamDate,
+            totalMarks: 100,
+            confidence: currentSyllabus.confidence || "Average",
+            modules: topicLines.map((t) => ({
+              id: crypto.randomUUID(),
+              name: t,
+              weightage: 10,
+            })),
+          },
+        ];
+      }
+    }
+    return [
+      {
+        id: crypto.randomUUID(),
+        name: "",
+        examDate: defaultExamDate,
+        totalMarks: 100,
+        confidence: "Average",
+        modules: [{ id: crypto.randomUUID(), name: "", weightage: 0 }],
+      },
+    ];
+  };
 
-  const [schedule, setSchedule] = useState([]);
+  const [subjects, setSubjects] = useState(getInitialSubjects);
+  const [dailyHours, setDailyHours] = useState(currentSyllabus.dailyHours || 3);
+  const [schedule, setSchedule] = useState(() => {
+    return JSON.parse(localStorage.getItem("currentSchedule")) || [];
+  });
   const [activeDayTab, setActiveDayTab] = useState(0);
 
   const updateSubject = (id, field, value) => {
@@ -46,7 +84,11 @@ function Timetable() {
     } : subject));
   };
 
-  const handleGenerateSchedule = () => {
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [updateToast, setUpdateToast] = useState("");
+
+  const handleGenerateSchedule = async () => {
     const topicList = subjects.flatMap((subject) => subject.modules
       .filter((module) => module.name.trim())
       .map((module) => ({
@@ -107,6 +149,7 @@ function Timetable() {
     });
 
     setSchedule(generatedDays);
+    localStorage.setItem("currentSchedule", JSON.stringify(generatedDays));
     localStorage.setItem(
       "currentSyllabus",
       JSON.stringify({
@@ -115,11 +158,66 @@ function Timetable() {
         dailyHours,
       })
     );
+
+    // Sync to backend Firebase
+    const token = localStorage.getItem("firebaseIdToken");
+    if (token) {
+      setIsSyncing(true);
+      try {
+        for (const subject of subjects) {
+          if (!subject.name.trim()) continue; // Skip empty subjects
+          
+          const confidenceMap = {
+            "Weak": "Beginner",
+            "Average": "Intermediate",
+            "Strong": "Advanced"
+          };
+          const apiConfidence = confidenceMap[subject.confidence] || "Intermediate";
+
+          const subjectPayload = {
+            name: subject.name.trim(),
+            syllabus: "Modules provided in Timetable",
+            exam_date: subject.examDate || new Date().toISOString().split('T')[0],
+            initial_confidence: apiConfidence,
+          };
+          
+          const subjectRes = await createSubject(token, subjectPayload);
+          const backendSubjectId = subjectRes.id;
+          
+          for (const mod of subject.modules) {
+            if (!mod.name.trim()) continue;
+            const modulePayload = {
+              name: mod.name.trim(),
+              weightage: Number(mod.weightage) || 0,
+            };
+            await createModule(token, backendSubjectId, modulePayload);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to sync generated schedule to Firebase:", err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
   };
 
-  useEffect(() => {
-    handleGenerateSchedule();
-  }, []);
+  const handleUpdateAndRegenerate = async () => {
+    setIsUpdating(true);
+
+    // Persist the latest subjects/hours to localStorage first
+    const saved = JSON.parse(localStorage.getItem("currentSyllabus")) || {};
+    localStorage.setItem(
+      "currentSyllabus",
+      JSON.stringify({ ...saved, subjects, dailyHours })
+    );
+
+    // Re-run the generation logic with updated data
+    await handleGenerateSchedule();
+
+    setIsUpdating(false);
+    setUpdateToast("✅ Timetable updated with your latest subjects!");
+    setTimeout(() => setUpdateToast(""), 3500);
+  };
 
   const toggleTaskDone = (dayIndex, slotId) => {
     const updated = [...schedule];
@@ -128,13 +226,14 @@ function Timetable() {
       slot.completed = !slot.completed;
     }
     setSchedule(updated);
+    localStorage.setItem("currentSchedule", JSON.stringify(updated));
   };
 
   // Calculate total completed tasks
   let totalTasks = 0;
   let completedTasks = 0;
   schedule.forEach((d) => {
-    d.slots.forEach((s) => {
+    (d.slots || []).forEach((s) => {
       totalTasks++;
       if (s.completed) completedTasks++;
     });
@@ -172,7 +271,7 @@ function Timetable() {
               <div className="timetable-setup-grid subject-entry-grid">
                 <div className="form-group">
                   <label>Subject / Course Name</label>
-                  <input type="text" className="form-input form-input-no-icon" value={subject.name} onChange={(e) => updateSubject(subject.id, "name", e.target.value)} placeholder="e.g. Data Structures & Algorithms" />
+                  <input type="text" className="form-input form-input-no-icon" value={subject.name} onChange={(e) => updateSubject(subject.id, "name", e.target.value)} placeholder="Subject name (e.g. Mathematics, Physics)" />
                 </div>
                 <div className="form-group">
                   <label>Target Exam Date</label>
@@ -228,9 +327,51 @@ function Timetable() {
             />
         </div>
 
-        <button className="btn-generate-plan" onClick={handleGenerateSchedule}>
-          ✨ Generate Smart Plan Now
-        </button>
+        {/* Toast notification */}
+        {updateToast && (
+          <div
+            style={{
+              marginBottom: "12px",
+              padding: "12px 18px",
+              background: "#ecfdf5",
+              border: "1px solid #6ee7b7",
+              borderRadius: "var(--radius-sm)",
+              color: "#065f46",
+              fontWeight: "600",
+              fontSize: "14px",
+              display: "flex",
+              alignItems: "center",
+              gap: "8px",
+            }}
+          >
+            {updateToast}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: "12px", flexWrap: "wrap" }}>
+          <button
+            className="btn-generate-plan"
+            onClick={handleGenerateSchedule}
+            disabled={isSyncing || isUpdating}
+            style={{ flex: 1 }}
+          >
+            {isSyncing ? "Syncing Plan to Cloud..." : "✨ Generate Smart Plan Now"}
+          </button>
+
+          {schedule.length > 0 && (
+            <button
+              className="btn-generate-plan"
+              onClick={handleUpdateAndRegenerate}
+              disabled={isSyncing || isUpdating}
+              style={{
+                flex: 1,
+                background: "linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%)",
+              }}
+            >
+              {isUpdating ? "Updating..." : "🔄 Update & Regenerate"}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* AI ADAPTIVE NOTE */}

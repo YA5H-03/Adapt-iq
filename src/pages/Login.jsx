@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { loginStudent } from "../lib/api";
 
 function Login() {
   const navigate = useNavigate();
@@ -8,60 +9,45 @@ function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
 
-    const storedData = localStorage.getItem("studentData");
-    const student = storedData ? JSON.parse(storedData) : null;
-
-    if (!student) {
-      // If no account stored, automatically create a default session for seamless testing!
-      const defaultStudent = {
-        name: email ? email.split("@")[0] : "Alex Student",
-        email: email || "student@college.edu",
-        password: password || "password123",
-      };
-      localStorage.setItem("studentData", JSON.stringify(defaultStudent));
-      localStorage.setItem("studentRegistered", "true");
-      navigate("/dashboard");
+    if (!email || !password) {
+      setError("Please enter your email and password.");
       return;
     }
 
-    if (student.email && student.email.toLowerCase() !== email.toLowerCase()) {
-      setError("Email not found. You can use 'Fill Demo Credentials' below to test!");
-      return;
+    setIsSubmitting(true);
+
+    // Clear ALL previous user's data so different accounts don't bleed into each other
+    const keysToRemove = [
+      "studentData", "currentSyllabus", "quizAttempts",
+      "currentSchedule", "firebaseIdToken", "studentRegistered",
+    ];
+    keysToRemove.forEach((k) => localStorage.removeItem(k));
+
+    let displayName = email.split("@")[0] || "Student";
+
+    try {
+      const session = await loginStudent({ email, password });
+      if (session && session.idToken) {
+        localStorage.setItem("firebaseIdToken", session.idToken);
+      }
+      // Use name returned by backend if available
+      if (session && session.display_name) {
+        displayName = session.display_name;
+      }
+    } catch (err) {
+      console.warn("Backend auth offline, continuing with local login session:", err.message);
     }
 
+    const updatedStudent = { name: displayName, email };
+    localStorage.setItem("studentData", JSON.stringify(updatedStudent));
     localStorage.setItem("studentRegistered", "true");
+    setIsSubmitting(false);
     navigate("/dashboard");
-  };
-
-  const fillDemoAccount = () => {
-    const demoStudent = {
-      name: "Vidhi Student",
-      email: "vidhi@university.edu",
-      password: "password123",
-    };
-    localStorage.setItem("studentData", JSON.stringify(demoStudent));
-    localStorage.setItem("studentRegistered", "true");
-    
-    // Also add a sample syllabus if none exists
-    const existingSyllabus = localStorage.getItem("currentSyllabus");
-    if (!existingSyllabus) {
-      localStorage.setItem(
-        "currentSyllabus",
-        JSON.stringify({
-          syllabusText: "Unit 1: Data Structures & Arrays\nUnit 2: Linked Lists & Stacks\nUnit 3: Binary Trees & Traversal\nUnit 4: Graph Algorithms & BFS/DFS\nUnit 5: Sorting & Dynamic Programming",
-          examDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0],
-          confidence: "Intermediate",
-        })
-      );
-    }
-    
-    setEmail("vidhi@university.edu");
-    setPassword("password123");
-    setError("");
   };
 
   return (
@@ -131,7 +117,7 @@ function Login() {
                 <input
                   type="email"
                   className="form-input"
-                  placeholder="student@university.edu"
+                  placeholder="user@example.com"
                   value={email}
                   onChange={(e) => {
                     setEmail(e.target.value);
@@ -171,23 +157,13 @@ function Login() {
               <label className="remember-me">
                 <input type="checkbox" defaultChecked /> Remember me
               </label>
-              <a href="#forgot" onClick={(e) => { e.preventDefault(); fillDemoAccount(); }} className="forgot-link">
-                Forgot password?
-              </a>
+              <span className="forgot-link">Password reset is managed in Firebase</span>
             </div>
 
-            <button type="submit" className="btn-primary-auth">
-              Log In to Workspace →
+            <button type="submit" className="btn-primary-auth" disabled={isSubmitting}>
+              {isSubmitting ? "Logging in…" : "Log In to Workspace →"}
             </button>
           </form>
-
-          {/* QUICK DEMO LOGIN BOX */}
-          <div className="demo-login-box">
-            <p>Testing the app? Click below to populate demo student data:</p>
-            <button type="button" className="btn-demo" onClick={fillDemoAccount}>
-              ✨ Fill Demo Credentials
-            </button>
-          </div>
 
           <div className="auth-switch-text">
             Don't have an account yet?

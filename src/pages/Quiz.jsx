@@ -6,16 +6,46 @@ function Quiz() {
 
   const currentSyllabus = JSON.parse(localStorage.getItem("currentSyllabus")) || {};
 
+  // Structured subjects from timetable setup (each has .name and .modules[])
+  const structuredSubjects = (currentSyllabus.subjects || []).filter(
+    (s) => s.name && s.modules && s.modules.length > 0
+  );
+
+  // Fallback: flat topics from syllabusText when no structured subjects exist
   const syllabusText = currentSyllabus.syllabusText || "";
-  const topics = syllabusText
+  const flatTopics = syllabusText
     ? syllabusText.split("\n").map((x) => x.replace(/^\d+[\).\-\s]*/, "").trim()).filter(Boolean)
-    : ["Data Structures", "Algorithms", "Operating Systems", "Computer Networks", "Database Management"];
+    : [];
+
+  const hasStructuredData = structuredSubjects.length > 0;
 
   // Setup form states
-  const [selectedSubject, setSelectedSubject] = useState("Core Computer Science");
-  const [selectedTopic, setSelectedTopic] = useState("Entire Syllabus");
+  const [selectedSubjectId, setSelectedSubjectId] = useState(
+    hasStructuredData ? structuredSubjects[0].id : "__flat__"
+  );
+  const [selectedModuleId, setSelectedModuleId] = useState("__all__");
   const [questionCount, setQuestionCount] = useState(10);
   const [difficulty, setDifficulty] = useState("Medium");
+
+  // Derive the active subject object and its modules
+  const activeSubject = structuredSubjects.find((s) => s.id === selectedSubjectId) || null;
+  const activeModules = activeSubject
+    ? activeSubject.modules.filter((m) => m.name && m.name.trim())
+    : [];
+
+  // Resolve the actual topic list used for quiz generation
+  const resolveTopics = () => {
+    if (!hasStructuredData) return flatTopics;
+    if (selectedModuleId === "__all__") return activeModules.map((m) => m.name.trim());
+    const mod = activeModules.find((m) => m.id === selectedModuleId);
+    return mod ? [mod.name.trim()] : activeModules.map((m) => m.name.trim());
+  };
+
+  // When subject changes, reset module selection
+  const handleSubjectChange = (subjectId) => {
+    setSelectedSubjectId(subjectId);
+    setSelectedModuleId("__all__");
+  };
 
   // Quiz active states
   const [questions, setQuestions] = useState([]);
@@ -24,6 +54,40 @@ function Quiz() {
   const [timeLeft, setTimeLeft] = useState(600); // 10 minutes in seconds
   const [isCompleted, setIsCompleted] = useState(false);
   const [scoreResult, setScoreResult] = useState(null);
+
+  const handleSubmitQuiz = () => {
+    let correctCount = 0;
+    const strongTopics = new Set();
+    const weakTopics = new Set();
+
+    questions.forEach((q, idx) => {
+      const userChoice = userAnswers[idx];
+      if (userChoice === q.correctAnswer) {
+        correctCount++;
+        strongTopics.add(q.topic);
+      } else {
+        weakTopics.add(q.topic);
+      }
+    });
+
+    const percent = Math.round((correctCount / questions.length) * 100);
+
+    const result = {
+      score: correctCount,
+      total: questions.length,
+      percentage: percent,
+      strong: Array.from(strongTopics),
+      weak: Array.from(weakTopics),
+      date: new Date().toISOString(),
+      subject: activeSubject ? activeSubject.name : "General",
+    };
+
+    const prevAttempts = JSON.parse(localStorage.getItem("quizAttempts")) || [];
+    localStorage.setItem("quizAttempts", JSON.stringify([result, ...prevAttempts]));
+
+    setScoreResult(result);
+    setIsCompleted(true);
+  };
 
   // Timer effect
   useEffect(() => {
@@ -40,8 +104,12 @@ function Quiz() {
 
   // Quiz generator function
   const handleGenerateQuiz = () => {
-    const activeTopics =
-      selectedTopic === "Entire Syllabus" ? topics : [selectedTopic];
+    const activeTopics = resolveTopics();
+
+    if (activeTopics.length === 0) {
+      alert("No modules found for the selected subject. Please add modules in the Timetable setup first.");
+      return;
+    }
 
     const generated = [];
     for (let i = 0; i < questionCount; i++) {
@@ -116,32 +184,7 @@ function Quiz() {
     });
   };
 
-  const handleSubmitQuiz = () => {
-    let correctCount = 0;
-    const strongTopics = new Set();
-    const weakTopics = new Set();
 
-    questions.forEach((q, idx) => {
-      const userChoice = userAnswers[idx];
-      if (userChoice === q.correctAnswer) {
-        correctCount++;
-        strongTopics.add(q.topic);
-      } else {
-        weakTopics.add(q.topic);
-      }
-    });
-
-    const percent = Math.round((correctCount / questions.length) * 100);
-
-    setScoreResult({
-      score: correctCount,
-      total: questions.length,
-      percentage: percent,
-      strong: Array.from(strongTopics),
-      weak: Array.from(weakTopics)
-    });
-    setIsCompleted(true);
-  };
 
   const formatTimer = (seconds) => {
     const mins = Math.floor(seconds / 60);
@@ -328,37 +371,119 @@ function Quiz() {
       <div className="quiz-setup-card">
         <h2 style={{ fontSize: "20px", fontWeight: "700", marginBottom: "20px" }}>Configure Quiz Parameters</h2>
 
+        {!hasStructuredData && flatTopics.length === 0 && (
+          <div
+            style={{
+              padding: "14px 18px",
+              background: "var(--primary-light)",
+              border: "1px solid var(--primary-border)",
+              borderRadius: "var(--radius-sm)",
+              fontSize: "13px",
+              color: "var(--primary-hover)",
+              marginBottom: "20px",
+            }}
+          >
+            ⚠️ No syllabus topics found. Please set up your subjects and modules in the{" "}
+            <button
+              style={{ color: "var(--primary)", fontWeight: "700", textDecoration: "underline" }}
+              onClick={() => navigate("/timetable")}
+            >
+              Smart Timetable
+            </button>{" "}
+            page first.
+          </div>
+        )}
+
         <div className="timetable-setup-grid">
+          {/* SUBJECT SELECTOR */}
           <div className="form-group">
             <label>Subject</label>
-            <select
-              className="form-input form-input-no-icon"
-              value={selectedSubject}
-              onChange={(e) => setSelectedSubject(e.target.value)}
-            >
-              <option>Core Computer Science</option>
-              <option>Data Structures & Algorithms</option>
-              <option>Operating Systems</option>
-              <option>Database Systems</option>
-            </select>
+            {hasStructuredData ? (
+              <select
+                className="form-input form-input-no-icon"
+                value={selectedSubjectId}
+                onChange={(e) => handleSubjectChange(e.target.value)}
+              >
+                {structuredSubjects.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className="form-input form-input-no-icon"
+                placeholder="e.g. General / Course Subject"
+                value="General"
+                readOnly
+              />
+            )}
           </div>
 
+          {/* MODULE SELECTOR — driven by selected subject */}
           <div className="form-group">
-            <label>Target Topic</label>
-            <select
-              className="form-input form-input-no-icon"
-              value={selectedTopic}
-              onChange={(e) => setSelectedTopic(e.target.value)}
-            >
-              <option>Entire Syllabus</option>
-              {topics.map((t, idx) => (
-                <option key={idx} value={t}>
-                  {t}
+            <label>Module / Topic</label>
+            {hasStructuredData ? (
+              <select
+                className="form-input form-input-no-icon"
+                value={selectedModuleId}
+                onChange={(e) => setSelectedModuleId(e.target.value)}
+                disabled={activeModules.length === 0}
+              >
+                <option value="__all__">
+                  All Modules ({activeModules.length})
                 </option>
-              ))}
-            </select>
+                {activeModules.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} {m.weightage ? `(${m.weightage} marks)` : ""}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <select
+                className="form-input form-input-no-icon"
+                defaultValue="__all__"
+              >
+                <option value="__all__">Entire Syllabus</option>
+                {flatTopics.map((t, idx) => (
+                  <option key={idx} value={t}>{t}</option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
+
+        {/* MODULE CHIPS PREVIEW */}
+        {hasStructuredData && activeModules.length > 0 && (
+          <div style={{ marginBottom: "20px" }}>
+            <p style={{ fontSize: "12px", color: "var(--text-muted)", marginBottom: "8px", fontWeight: "600" }}>
+              MODULES IN {activeSubject?.name?.toUpperCase()}
+            </p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
+              {activeModules.map((m) => (
+                <span
+                  key={m.id}
+                  onClick={() => setSelectedModuleId(m.id === selectedModuleId ? "__all__" : m.id)}
+                  style={{
+                    padding: "4px 12px",
+                    borderRadius: "20px",
+                    fontSize: "12px",
+                    fontWeight: "600",
+                    cursor: "pointer",
+                    border: "1px solid",
+                    transition: "all 0.15s",
+                    background: selectedModuleId === m.id ? "var(--primary)" : "var(--primary-light)",
+                    color: selectedModuleId === m.id ? "#fff" : "var(--primary-hover)",
+                    borderColor: selectedModuleId === m.id ? "var(--primary)" : "var(--primary-border)",
+                  }}
+                >
+                  {m.name} {m.weightage ? `· ${m.weightage}m` : ""}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div className="timetable-setup-grid">
           <div className="form-group">

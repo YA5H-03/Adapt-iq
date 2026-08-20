@@ -8,7 +8,7 @@ function Profile() {
   const currentSyllabus = JSON.parse(localStorage.getItem("currentSyllabus")) || {};
 
   const [name, setName] = useState(student.name || "Student");
-  const [email, setEmail] = useState(student.email || "student@university.edu");
+  const [email, setEmail] = useState(student.email || "");
   const [confidence, setConfidence] = useState(currentSyllabus.confidence || "Intermediate");
   const [savedMsg, setSavedMsg] = useState("");
 

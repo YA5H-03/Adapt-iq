@@ -4,16 +4,13 @@ import { useNavigate } from "react-router-dom";
 function StudySetup() {
   const navigate = useNavigate();
 
-  const [syllabusText, setSyllabusText] = useState(
-    `Unit 1: Data Structures & Arrays\nUnit 2: Linked Lists & Stacks\nUnit 3: Binary Trees & Traversal\nUnit 4: Graph Algorithms & BFS/DFS\nUnit 5: Sorting & Dynamic Programming`
-  );
+  const [syllabusText, setSyllabusText] = useState("");
   const [pdfFile, setPdfFile] = useState(null);
-  const [examDate, setExamDate] = useState(
-    new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
-  );
+  const [examDate, setExamDate] = useState("");
   const [confidence, setConfidence] = useState("Intermediate");
   const [dailyHours, setDailyHours] = useState(3);
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -23,7 +20,7 @@ function StudySetup() {
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!syllabusText.trim() && !pdfFile) {
@@ -36,17 +33,22 @@ function StudySetup() {
       return;
     }
 
-    const syllabusData = {
-      syllabusText: syllabusText,
-      pdfName: pdfFile ? pdfFile.name : "Syllabus_Document.pdf",
-      examDate: examDate,
-      confidence: confidence,
-      dailyHours: dailyHours,
-      uploadedAt: new Date().toISOString(),
-    };
+    setIsSubmitting(true);
 
-    localStorage.setItem("currentSyllabus", JSON.stringify(syllabusData));
+    // Save syllabus data to localStorage so it is always stored
+    const setupData = {
+      syllabusText,
+      examDate,
+      confidence,
+      dailyHours,
+      pdfName: pdfFile ? pdfFile.name : null,
+      updatedAt: new Date().toISOString(),
+    };
+    localStorage.setItem("currentSyllabus", JSON.stringify(setupData));
     localStorage.setItem("setupCompleted", "true");
+
+    // We no longer sync to backend here. It happens in Timetable.jsx
+    setIsSubmitting(false);
     navigate("/dashboard");
   };
 
@@ -195,8 +197,8 @@ function StudySetup() {
               </div>
             </div>
 
-            <button type="submit" className="btn-generate-plan">
-              ✨ Build Smart Study Workspace →
+            <button type="submit" className="btn-generate-plan" disabled={isSubmitting}>
+              {isSubmitting ? "Saving your study plan…" : "✨ Build Smart Study Workspace →"}
             </button>
           </form>
         </div>

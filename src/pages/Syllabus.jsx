@@ -6,14 +6,8 @@ function Syllabus() {
 
   const savedSyllabus = JSON.parse(localStorage.getItem("currentSyllabus")) || {};
 
-  const [syllabusText, setSyllabusText] = useState(
-    savedSyllabus.syllabusText ||
-      `Unit 1: Data Structures & Arrays\nUnit 2: Linked Lists & Stacks\nUnit 3: Binary Trees & Traversal\nUnit 4: Graph Algorithms & BFS/DFS\nUnit 5: Sorting & Dynamic Programming`
-  );
-  const [examDate, setExamDate] = useState(
-    savedSyllabus.examDate ||
-      new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]
-  );
+  const [syllabusText, setSyllabusText] = useState(savedSyllabus.syllabusText || "");
+  const [examDate, setExamDate] = useState(savedSyllabus.examDate || "");
   const [pdfFile, setPdfFile] = useState(null);
   const [message, setMessage] = useState("");
 
@@ -34,7 +28,7 @@ function Syllabus() {
     const updatedData = {
       ...savedSyllabus,
       syllabusText,
-      pdfName: pdfFile ? pdfFile.name : savedSyllabus.pdfName || "Syllabus_Document.pdf",
+      pdfName: pdfFile ? pdfFile.name : savedSyllabus.pdfName || null,
       examDate,
       updatedAt: new Date().toISOString(),
     };

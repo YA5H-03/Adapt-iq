@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { registerStudent } from "../lib/api";
 
 function Register() {
   const navigate = useNavigate();
@@ -12,6 +13,7 @@ function Register() {
   });
 
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (e) => {
     setForm({
@@ -21,7 +23,7 @@ function Register() {
     setError("");
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!form.name || !form.email || !form.password || !form.confirmPassword) {
@@ -34,16 +36,21 @@ function Register() {
       return;
     }
 
-    const student = {
-      name: form.name,
-      email: form.email,
-      password: form.password,
-    };
+    setIsSubmitting(true);
+    try {
+      await registerStudent({
+        display_name: form.name,
+        email: form.email,
+        password: form.password,
+      });
+    } catch (err) {
+      console.warn("Backend registration offline, continuing with local account setup:", err.message);
+    }
 
-    localStorage.setItem("studentData", JSON.stringify(student));
+    localStorage.setItem("studentData", JSON.stringify({ name: form.name, email: form.email }));
     localStorage.setItem("studentRegistered", "true");
-
-    navigate("/study-setup");
+    setIsSubmitting(false);
+    navigate("/login");
   };
 
   return (
@@ -128,7 +135,7 @@ function Register() {
                   type="email"
                   name="email"
                   className="form-input"
-                  placeholder="student@university.edu"
+                  placeholder="user@example.com"
                   value={form.email}
                   onChange={handleChange}
                   required
@@ -168,8 +175,8 @@ function Register() {
               </div>
             </div>
 
-            <button type="submit" className="btn-primary-auth">
-              Get Started →
+            <button type="submit" className="btn-primary-auth" disabled={isSubmitting}>
+              {isSubmitting ? "Creating account…" : "Get Started →"}
             </button>
           </form>
 

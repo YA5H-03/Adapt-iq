@@ -125,56 +125,40 @@ function Landing() {
         <div className="hero-visual">
 
           <div className="floating-card card-one">
-
             <span>🔥</span>
-
             <div>
-              <strong>7 Day Streak</strong>
-              <small>Keep going!</small>
+              <strong>Active Streak</strong>
+              <small>Daily learning momentum</small>
             </div>
-
           </div>
 
-
           <div className="dashboard-preview">
-
             <div className="preview-top">
-
               <div>
-                <span>Good Morning 👋</span>
-                <strong>Your Study Dashboard</strong>
+                <span>Welcome 👋</span>
+                <strong>Your Study Workspace</strong>
               </div>
-
               <div className="preview-circle">
-                68%
+                ✦
               </div>
-
             </div>
-
 
             <div className="preview-stats">
-
               <div>
-                <small>Study Time</small>
-                <strong>14h 30m</strong>
+                <small>Study Target</small>
+                <strong>Daily Hours</strong>
               </div>
-
               <div>
-                <small>Quizzes</small>
-                <strong>28</strong>
+                <small>Evaluation</small>
+                <strong>Quizzes</strong>
               </div>
-
             </div>
 
-
             <div className="preview-chart">
-
               <div className="chart-label">
-                Weekly Progress
+                Mastery Growth
               </div>
-
               <div className="chart-bars">
-
                 <span style={{ height: "40%" }} />
                 <span style={{ height: "55%" }} />
                 <span style={{ height: "45%" }} />
@@ -182,50 +166,37 @@ function Landing() {
                 <span style={{ height: "62%" }} />
                 <span style={{ height: "82%" }} />
                 <span style={{ height: "92%" }} />
-
               </div>
-
             </div>
-
 
             <div className="preview-plan">
-
               <div className="plan-title">
-                Today's Smart Plan
+                Adaptive Daily Plan
               </div>
-
               <div className="preview-task">
                 <span className="task-dot purple" />
-                <span>Data Structures</span>
-                <small>45 min</small>
+                <span>Primary Subject Unit</span>
+                <small>Morning Focus</small>
               </div>
-
               <div className="preview-task">
                 <span className="task-dot orange" />
-                <span>DBMS Revision</span>
-                <small>30 min</small>
+                <span>Module Revision</span>
+                <small>Afternoon Practice</small>
               </div>
-
               <div className="preview-task">
                 <span className="task-dot green" />
-                <span>Practice Quiz</span>
-                <small>15 min</small>
+                <span>Adaptive Practice Quiz</span>
+                <small>Self Assessment</small>
               </div>
-
             </div>
-
           </div>
 
-
           <div className="floating-card card-two">
-
             <span>🤖</span>
-
             <div>
-              <strong>AI Insight</strong>
-              <small>Focus on weak topics</small>
+              <strong>AI Recommendation</strong>
+              <small>Target weak topics</small>
             </div>
-
           </div>
 
         </div>
