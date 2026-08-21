@@ -20,6 +20,7 @@ function Login() {
     }
 
     setIsSubmitting(true);
+    setError("");
 
     // Clear ALL previous user's data so different accounts don't bleed into each other
     const keysToRemove = [
@@ -32,15 +33,20 @@ function Login() {
 
     try {
       const session = await loginStudent({ email, password });
-      if (session && session.idToken) {
-        localStorage.setItem("firebaseIdToken", session.idToken);
+      if (!session || !session.idToken) {
+        setError("Login failed: no token received from server. Please try again.");
+        setIsSubmitting(false);
+        return;
       }
-      // Use name returned by backend if available
-      if (session && session.display_name) {
+      localStorage.setItem("firebaseIdToken", session.idToken);
+      if (session.display_name) {
         displayName = session.display_name;
       }
     } catch (err) {
-      console.warn("Backend auth offline, continuing with local login session:", err.message);
+      // Show the real error — wrong password, account not found, server down, etc.
+      setError(err.message || "Login failed. Please check your credentials and try again.");
+      setIsSubmitting(false);
+      return;
     }
 
     const updatedStudent = { name: displayName, email };

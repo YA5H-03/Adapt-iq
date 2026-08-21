@@ -45,3 +45,16 @@ export const submitAdaptiveQuiz = (token, quizId, answers) => request("/quiz/sub
   headers: { Authorization: `Bearer ${token}` },
   body: JSON.stringify({ quiz_id: quizId, answers }),
 });
+
+/**
+ * POST /feedback/recommend
+ * Orchestrates ML prediction → Prompt Builder → Gemini and returns
+ * { recommendation: string, ml_feedback: { level, accuracy, trend } }
+ *
+ * @param {object} payload - Student performance data (same contract as POST /feedback)
+ */
+export const getRecommendation = (payload) => request("/feedback/recommend", {
+  method: "POST",
+  body: JSON.stringify(payload),
+});
+

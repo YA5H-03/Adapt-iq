@@ -131,3 +131,51 @@ def generate_quiz(prompt: str, num_questions: int) -> list[dict]:
 
 def public_questions(questions: list[dict]) -> list[dict]:
     return [{key: item[key] for key in ("id", "question", "options", "concept")} for item in questions]
+
+
+def generate_recommendation(prompt: str) -> str:
+    """Generate a free-text study recommendation using the existing Gemini client.
+
+    Unlike ``generate_quiz`` this function expects plain natural language output,
+    not structured JSON.  It shares the same API key, model, and client
+    initialisation as the quiz generator.
+
+    Parameters
+    ----------
+    prompt:
+        The fully-built prompt from ``build_recommendation_prompt``.
+
+    Returns
+    -------
+    str
+        The generated recommendation text from Gemini.
+
+    Raises
+    ------
+    RuntimeError
+        If the Gemini API key is missing, the request fails, or the response
+        contains no usable text.
+    """
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        raise RuntimeError("Gemini is not configured. Set GEMINI_API_KEY on the backend.")
+    client = genai.Client(api_key=settings.gemini_api_key)
+    try:
+        logger.info("Requesting Gemini study recommendation")
+        response = client.models.generate_content(
+            model=settings.gemini_model,
+            contents=prompt,
+        )
+        text = (response.text or "").strip()
+        if not text:
+            raise RuntimeError("Gemini returned an empty recommendation.")
+        logger.info("Gemini recommendation generated (%d chars)", len(text))
+        return text
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        logger.warning("Gemini recommendation request failed: %s", exc)
+        raise RuntimeError(
+            "Gemini recommendation request failed. Check GEMINI_API_KEY/model configuration."
+        ) from exc
+

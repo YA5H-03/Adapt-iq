@@ -13,15 +13,18 @@ from .models import (
     MLConfidenceUpdate,
     AdaptiveQuizGenerateRequest,
     AdaptiveQuizSubmitRequest,
+    FeedbackRequest,
+    RecommendationRequest,
     ModuleCreate,
     QuizAttemptCreate,
     RegisterRequest,
     StudyLogCreate,
     SubjectCreate,
 )
-from .services.gemini import generate_quiz, public_questions
+from .services.gemini import generate_quiz, generate_recommendation, public_questions
+from .services.ml_service import get_feedback as ml_get_feedback
 from .services.performance import calculate_performance
-from .services.prompt_builder import build_adaptive_quiz_prompt
+from .services.prompt_builder import build_adaptive_quiz_prompt, build_recommendation_prompt
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
@@ -287,3 +290,155 @@ def submit_adaptive_quiz(payload: AdaptiveQuizSubmitRequest, user: dict = Depend
         "difficulty": stored["difficulty"], "next_difficulty": performance["next_difficulty"],
         "performance": performance, "question_results": question_results,
     }
+
+
+# ---------------------------------------------------------------------------
+# ML Feedback endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/feedback")
+def feedback(payload: FeedbackRequest) -> dict:
+    """Run the ML model + feedback engine and return a performance summary.
+
+    This endpoint is intentionally **public** (no Firebase auth token required)
+    so that the React frontend can call it directly during quiz review without
+    needing to pass the user's ID token.  Add ``Depends(current_user)`` here
+    when you want to restrict access to authenticated users only.
+
+    Request body example::
+
+        {
+            "subject": "DBMS",
+            "topic": "SQL",
+            "study_hours": 2.0,
+            "quiz_score": 45,
+            "previous_score": 50,
+            "attempts": 2,
+            "time_taken": 10,
+            "days_to_exam": 7,
+            "last_studied_days": 4,
+            "topic_difficulty": "Medium",
+            "scores": [40, 50, 60]
+        }
+
+    Response body example::
+
+        {
+            "level": "Weak",
+            "accuracy": 60.0,
+            "trend": "improving"
+        }
+    """
+    logger.info(
+        "Feedback requested | subject=%s topic=%s quiz_score=%s",
+        payload.subject,
+        payload.topic,
+        payload.quiz_score,
+    )
+    try:
+        result = ml_get_feedback(payload.model_dump())
+    except FileNotFoundError as exc:
+        logger.error("ML model file missing: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "ML model is not available. "
+                "Please place 'student_performance_model.joblib' in backend/model/."
+            ),
+        ) from exc
+    except RuntimeError as exc:
+        logger.error("ML model load error: %s", exc)
+        raise HTTPException(status_code=503, detail="ML model failed to load.") from exc
+    except Exception as exc:
+        logger.exception("Unexpected error in /feedback: %s", exc)
+        raise HTTPException(status_code=500, detail="Internal server error during prediction.") from exc
+
+    logger.info(
+        "Feedback result | level=%s accuracy=%s trend=%s",
+        result["level"],
+        result["accuracy"],
+        result["trend"],
+    )
+    return result
+
+
+# ---------------------------------------------------------------------------
+# ML → Prompt Builder → Gemini orchestration endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/feedback/recommend")
+def recommend(payload: RecommendationRequest) -> dict:
+    """Full end-to-end orchestration: ML prediction → Prompt Builder → Gemini.
+
+    This endpoint is the integration centrepiece.  It:
+
+    1. Calls the ML feedback engine (``get_feedback``) to classify the student's
+       performance level and trend.
+    2. Passes the ML result **and** the student context into the Prompt Builder
+       (``build_recommendation_prompt``) to construct a personalised prompt.
+    3. Sends that prompt to the existing Gemini integration
+       (``generate_recommendation``) and returns the generated study advice.
+
+    The endpoint is intentionally **public** (no Firebase auth required) so that
+    the React dashboard can call it directly.  Add ``Depends(current_user)`` when
+    you want to restrict access to authenticated users.
+
+    Request / response contract
+    ---------------------------
+    Request body: identical fields to ``POST /feedback`` (``RecommendationRequest``).
+
+    Response::
+
+        {
+            "recommendation": "• Focus on ...",
+            "ml_feedback": {
+                "level": "Weak",
+                "accuracy": 60.0,
+                "trend": "improving"
+            }
+        }
+    """
+    data = payload.model_dump()
+
+    # ── Step 1: ML prediction ────────────────────────────────────────────────
+    logger.info(
+        "Recommendation requested | subject=%s topic=%s quiz_score=%s",
+        payload.subject, payload.topic, payload.quiz_score,
+    )
+    try:
+        ml_feedback = ml_get_feedback(data)
+    except FileNotFoundError as exc:
+        logger.error("ML model file missing: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="ML model is not available. Place 'student_performance_model.joblib' in backend/model/.",
+        ) from exc
+    except RuntimeError as exc:
+        logger.error("ML model load error: %s", exc)
+        raise HTTPException(status_code=503, detail="ML model failed to load.") from exc
+    except Exception as exc:
+        logger.exception("Unexpected ML error in /feedback/recommend: %s", exc)
+        raise HTTPException(status_code=500, detail="Internal error during ML prediction.") from exc
+
+    # ── Step 2: Build personalised Gemini prompt ─────────────────────────────
+    try:
+        prompt = build_recommendation_prompt(student_data=data, ml_feedback=ml_feedback)
+    except Exception as exc:
+        logger.exception("Prompt builder failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to build recommendation prompt.") from exc
+
+    # ── Step 3: Generate recommendation via Gemini ───────────────────────────
+    try:
+        recommendation = generate_recommendation(prompt)
+    except RuntimeError as exc:
+        logger.warning("Gemini recommendation failed: %s", exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Unexpected Gemini error in /feedback/recommend: %s", exc)
+        raise HTTPException(status_code=500, detail="Internal error during Gemini generation.") from exc
+
+    logger.info(
+        "Recommendation generated | level=%s trend=%s length=%d",
+        ml_feedback["level"], ml_feedback["trend"], len(recommendation),
+    )
+    return {"recommendation": recommendation, "ml_feedback": ml_feedback}

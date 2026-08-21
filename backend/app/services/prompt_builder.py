@@ -87,3 +87,87 @@ Rules:
 - "concept" should identify the concept tested, such as "AVL rotations".
 - Return exactly {num_questions} JSON objects.
 """
+
+
+def build_recommendation_prompt(*, student_data: dict, ml_feedback: dict) -> str:
+    """Build a Gemini prompt for a personalized study recommendation.
+
+    Parameters
+    ----------
+    student_data:
+        Raw student performance fields (subject, topic, study_hours, quiz_score,
+        previous_score, attempts, time_taken, days_to_exam, last_studied_days,
+        topic_difficulty, scores).
+    ml_feedback:
+        Output of get_feedback() — { "level": str, "accuracy": float, "trend": str }.
+
+    Returns
+    -------
+    str
+        A structured natural-language prompt ready for Gemini text generation.
+    """
+    subject = student_data.get("subject", "the subject")
+    topic = student_data.get("topic", "the topic")
+    study_hours = student_data.get("study_hours", 0)
+    quiz_score = student_data.get("quiz_score", 0)
+    days_to_exam = student_data.get("days_to_exam", 0)
+    attempts = student_data.get("attempts", 0)
+    topic_difficulty = student_data.get("topic_difficulty", "Medium")
+    scores = student_data.get("scores", [])
+
+    level = ml_feedback.get("level", "Average")
+    accuracy = ml_feedback.get("accuracy", quiz_score)
+    trend = ml_feedback.get("trend", "no trend")
+
+    score_history = ", ".join(str(s) for s in scores) if scores else "No previous scores"
+
+    # Map ML level to actionable guidance tone
+    level_guidance = {
+        "Weak": (
+            "The student is struggling and needs foundational support. "
+            "Recommend shorter focused sessions, concept revision before practice, "
+            "and easy-level quizzes to rebuild confidence."
+        ),
+        "Average": (
+            "The student has a moderate grasp of the topic. "
+            "Recommend balanced study sessions mixing revision and practice, "
+            "with medium-difficulty quizzes to solidify understanding."
+        ),
+        "Strong": (
+            "The student is performing well. "
+            "Recommend challenge-level practice, edge-case questions, "
+            "and time-pressure drills to maintain and extend mastery."
+        ),
+    }.get(level, "Recommend balanced revision and practice sessions.")
+
+    trend_note = {
+        "improving": "The student's scores are on an upward trend — reinforce momentum.",
+        "declining": "The student's scores are declining — address gaps urgently before exam.",
+        "stable": "Performance is consistent — push for the next level with harder practice.",
+        "no trend": "This is early data — establish a strong baseline with diagnostic quizzes.",
+    }.get(trend, "")
+
+    return f"""You are an expert AI study coach for university students.
+
+Generate a concise, personalized study recommendation in 3-5 clear bullet points.
+Do NOT use markdown headers. Start directly with the bullet points using "•".
+Be specific, actionable, and encouraging. Keep the total response under 200 words.
+
+Student Performance Summary:
+- Subject: {subject}
+- Topic: {topic}
+- ML Performance Level: {level} (out of Weak / Average / Strong)
+- Latest Accuracy: {accuracy}%
+- Score History: {score_history}
+- Performance Trend: {trend}
+- Study Hours Per Session: {study_hours} hours
+- Quiz Score: {quiz_score}%
+- Quiz Attempts: {attempts}
+- Topic Difficulty: {topic_difficulty}
+- Days Until Exam: {days_to_exam}
+
+ML Guidance:
+{level_guidance}
+{trend_note}
+
+Generate study recommendations now:"""
