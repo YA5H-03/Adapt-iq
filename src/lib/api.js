@@ -33,3 +33,15 @@ export const createModule = (token, subjectId, payload) => request(`/subjects/${
   headers: { Authorization: `Bearer ${token}` },
   body: JSON.stringify(payload),
 });
+
+export const generateAdaptiveQuiz = (token, payload) => request("/quiz/generate", {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}` },
+  body: JSON.stringify(payload),
+});
+
+export const submitAdaptiveQuiz = (token, quizId, answers) => request("/quiz/submit", {
+  method: "POST",
+  headers: { Authorization: `Bearer ${token}` },
+  body: JSON.stringify({ quiz_id: quizId, answers }),
+});

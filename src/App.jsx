@@ -4,7 +4,6 @@ import Landing from "./pages/Landing";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
-import Syllabus from "./pages/Syllabus";
 import Timetable from "./pages/Timetable";
 import Quiz from "./pages/Quiz";
 import Profile from "./pages/Profile";
@@ -21,7 +20,6 @@ function App() {
       {/* DASHBOARD SAAS APP WITH PERSISTENT SIDEBAR & NAVBAR */}
       <Route element={<Layout />}>
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/syllabus" element={<Syllabus />} />
         <Route path="/timetable" element={<Timetable />} />
         <Route path="/quiz" element={<Quiz />} />
         <Route path="/profile" element={<Profile />} />

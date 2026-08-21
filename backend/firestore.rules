@@ -3,8 +3,22 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
-      match /{document=**} {
+      match /subjects/{subjectId} {
         allow read, write: if request.auth != null && request.auth.uid == userId;
+        match /modules/{moduleId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+        match /quizAttempts/{attemptId} {
+          allow read, write: if request.auth != null && request.auth.uid == userId;
+        }
+      }
+      match /studyLogs/{logId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      // The server stores answer keys here. Firebase Admin bypasses rules;
+      // browser clients must use the authenticated FastAPI endpoints instead.
+      match /adaptiveQuizzes/{quizId} {
+        allow read, write: if false;
       }
     }
   }

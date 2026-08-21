@@ -1,3 +1,5 @@
+import logging
+
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,14 +11,20 @@ from .firebase import get_db, initialise_firebase
 from .models import (
     LoginRequest,
     MLConfidenceUpdate,
+    AdaptiveQuizGenerateRequest,
+    AdaptiveQuizSubmitRequest,
     ModuleCreate,
     QuizAttemptCreate,
     RegisterRequest,
     StudyLogCreate,
     SubjectCreate,
 )
+from .services.gemini import generate_quiz, public_questions
+from .services.performance import calculate_performance
+from .services.prompt_builder import build_adaptive_quiz_prompt
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 app = FastAPI(title="AdaptIQ API", version="1.0.0")
 app.add_middleware(
     CORSMiddleware,
@@ -38,6 +46,41 @@ async def validation_exception_handler(request, exc):
 
 def user_ref(uid: str):
     return get_db().collection("users").document(uid)
+
+
+def get_or_create_quiz_scope(uid: str, subject_name: str, module_name: str):
+    """Use the existing users/{uid}/subjects/{subject}/modules structure."""
+    user = user_ref(uid)
+    subjects = list(user.collection("subjects").where("name", "==", subject_name).limit(1).stream())
+    if subjects:
+        subject = subjects[0].reference
+    else:
+        subject = user.collection("subjects").document()
+        subject.set({
+            "name": subject_name,
+            "syllabus": "Created from adaptive quiz request",
+            "examDate": None,
+            "initialConfidence": None,
+            "quizScore": None,
+            "attempts": 0,
+            "totalQuizTimeSeconds": 0,
+            "createdAt": firestore.SERVER_TIMESTAMP,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        })
+    modules = list(subject.collection("modules").where("name", "==", module_name).limit(1).stream())
+    if modules:
+        module = modules[0].reference
+    else:
+        module = subject.collection("modules").document()
+        module.set({"name": module_name, "weightage": 0, "quizScore": None, "attempts": 0, "createdAt": firestore.SERVER_TIMESTAMP})
+    return subject, module
+
+
+def get_module_attempts(subject, module_id: str) -> list[dict]:
+    attempts = list(subject.collection("quizAttempts").where("moduleId", "==", module_id).stream())
+    # Firestore server timestamps cannot reliably be ordered during local writes;
+    # sort the materialized documents instead of relying on a composite index.
+    return sorted((item.to_dict() for item in attempts), key=lambda item: str(item.get("completedAt") or item.get("takenAt") or ""))
 
 
 @app.on_event("startup")
@@ -142,3 +185,105 @@ def upsert_study_log(payload: StudyLogCreate, user: dict = Depends(current_user)
     log.set({"studyDate": payload.study_date.isoformat(), "studyHoursTarget": payload.target_hours, "actuallyStudiedHours": payload.actual_hours, "updatedAt": firestore.SERVER_TIMESTAMP}, merge=True)
     user_ref(user["uid"]).update({"lastStudiedDate": payload.study_date.isoformat(), "updatedAt": firestore.SERVER_TIMESTAMP})
     return {"id": log.id, "updated": True}
+
+
+@app.post("/quiz/generate", status_code=status.HTTP_201_CREATED)
+def generate_adaptive_quiz(payload: AdaptiveQuizGenerateRequest, user: dict = Depends(current_user)) -> dict:
+    """Generate and persist an adaptive quiz. Correct answers never leave this route."""
+    uid = user["uid"]
+    subject_name, module_name = payload.subject.strip(), payload.module.strip()
+    logger.info("Adaptive quiz generation started for user=%s subject=%s module=%s", uid, subject_name, module_name)
+    subject, module = get_or_create_quiz_scope(uid, subject_name, module_name)
+    attempts = get_module_attempts(subject, module.id)
+    performance = calculate_performance(attempts, payload.confidence)
+    difficulty = performance["next_difficulty"]
+    prompt = build_adaptive_quiz_prompt(
+        subject=subject_name,
+        module=module_name,
+        num_questions=payload.num_questions,
+        performance=performance,
+        difficulty=difficulty,
+    )
+    logger.info("Adaptive performance resolved: attempts=%s difficulty=%s", performance["attempt_count"], difficulty)
+    try:
+        questions = generate_quiz(prompt, payload.num_questions)
+    except RuntimeError as exc:
+        logger.warning("Adaptive quiz generation failed for user=%s: %s", uid, exc)
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    quiz = user_ref(uid).collection("adaptiveQuizzes").document()
+    quiz.set({
+        "subjectId": subject.id,
+        "subject": subject_name,
+        "moduleId": module.id,
+        "module": module_name,
+        "difficulty": difficulty,
+        "confidence": payload.confidence,
+        "numQuestions": payload.num_questions,
+        "questions": questions,
+        "status": "generated",
+        "generatedAt": firestore.SERVER_TIMESTAMP,
+    })
+    logger.info("Adaptive quiz validated and stored quiz_id=%s", quiz.id)
+    return {
+        "quiz_id": quiz.id,
+        "student_id": uid,
+        "subject": subject_name,
+        "module": module_name,
+        "difficulty": difficulty,
+        "performance": performance,
+        "questions": public_questions(questions),
+    }
+
+
+@app.post("/quiz/submit")
+def submit_adaptive_quiz(payload: AdaptiveQuizSubmitRequest, user: dict = Depends(current_user)) -> dict:
+    """Score the stored answer key server-side and update adaptive performance."""
+    uid = user["uid"]
+    quiz = user_ref(uid).collection("adaptiveQuizzes").document(payload.quiz_id)
+    snapshot = quiz.get()
+    if not snapshot.exists:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    stored = snapshot.to_dict()
+    if stored.get("status") == "submitted":
+        raise HTTPException(status_code=409, detail="This quiz has already been submitted")
+    answers = {answer.question_id: answer.selected_answer.upper() for answer in payload.answers}
+    stored_questions = stored.get("questions", [])
+    valid_ids = {question["id"] for question in stored_questions}
+    if len(answers) != len(payload.answers) or not set(answers).issubset(valid_ids) or any(answer not in {"A", "B", "C", "D"} for answer in answers.values()):
+        raise HTTPException(status_code=422, detail="Submitted answers do not match this quiz")
+    question_results = []
+    correct = 0
+    for question in stored_questions:
+        selected = answers.get(question["id"])
+        is_correct = selected == question["answer"]
+        correct += is_correct
+        question_results.append({
+            "questionId": question["id"], "concept": question["concept"], "selectedAnswer": selected,
+            "correctAnswer": question["answer"], "isCorrect": is_correct,
+        })
+    total = len(stored_questions)
+    score = round((correct / total) * 100, 2) if total else 0
+    subject = user_ref(uid).collection("subjects").document(stored["subjectId"])
+    module = subject.collection("modules").document(stored["moduleId"])
+    attempt = subject.collection("quizAttempts").document()
+    attempt.set({
+        "quizId": quiz.id, "moduleId": module.id, "module": stored["module"], "score": score,
+        "correctAnswers": correct, "totalQuestions": total, "confidence": stored["confidence"],
+        "difficulty": stored["difficulty"], "questionResults": question_results,
+        "completedAt": firestore.SERVER_TIMESTAMP,
+    })
+    quiz.update({"status": "submitted", "submittedAt": firestore.SERVER_TIMESTAMP, "attemptId": attempt.id})
+    subject.update({"attempts": firestore.Increment(1), "quizScore": score, "updatedAt": firestore.SERVER_TIMESTAMP})
+    attempts = get_module_attempts(subject, module.id)
+    performance = calculate_performance(attempts, stored["confidence"])
+    module.set({
+        "quizScore": score, "attempts": performance["attempt_count"], "adaptivePerformance": performance,
+        "updatedAt": firestore.SERVER_TIMESTAMP,
+    }, merge=True)
+    logger.info("Adaptive quiz submitted quiz_id=%s score=%s performance=%s", quiz.id, score, performance["performance_level"])
+    return {
+        "score": score, "correct": correct, "incorrect": total - correct, "total": total,
+        "difficulty": stored["difficulty"], "next_difficulty": performance["next_difficulty"],
+        "performance": performance, "question_results": question_results,
+    }

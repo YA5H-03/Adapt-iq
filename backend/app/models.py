@@ -45,3 +45,23 @@ class StudyLogCreate(BaseModel):
 class MLConfidenceUpdate(BaseModel):
     confidence_score: float = Field(ge=0, le=100)
     feedback: str = Field(min_length=1, max_length=2000)
+
+
+QuizConfidence = Literal["weak", "average", "strong"]
+
+
+class AdaptiveQuizGenerateRequest(BaseModel):
+    subject: str = Field(min_length=1, max_length=120)
+    module: str = Field(min_length=1, max_length=160)
+    num_questions: int = Field(ge=1, le=30)
+    confidence: QuizConfidence
+
+
+class QuizAnswerSubmission(BaseModel):
+    question_id: str = Field(min_length=1, max_length=100)
+    selected_answer: str = Field(min_length=1, max_length=1)
+
+
+class AdaptiveQuizSubmitRequest(BaseModel):
+    quiz_id: str = Field(min_length=1, max_length=100)
+    answers: list[QuizAnswerSubmission] = Field(default_factory=list, max_length=30)

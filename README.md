@@ -8,7 +8,7 @@ The Python API is in [`backend`](backend). It stores study data in Firestore and
 
 1. Create a Firebase project, enable **Email/Password** in Authentication, and create a Firestore database.
 2. Download a service-account JSON file from Firebase project settings and save it as `backend/service-account.json` (this is ignored by Git).
-3. Copy `backend/.env.example` to `backend/.env`, then fill `FIREBASE_WEB_API_KEY` and the service-account path.
+3. Copy `backend/.env.example` to `backend/.env`, then fill `FIREBASE_WEB_API_KEY`, the service-account path, and `GEMINI_API_KEY`.
 4. From `backend`, install requirements and run the API:
 
    ```bash
@@ -27,9 +27,40 @@ users/{uid}                         # email, displayName, lastStudiedDate
     modules/{moduleId}               # module name, weightage, module quiz data
     quizAttempts/{attemptId}         # score and time taken for each quiz
   studyLogs/{YYYY-MM-DD}             # target/actual study hours for the day
+  adaptiveQuizzes/{quizId}           # server-only generated questions and answer key
 ```
 
 ML analysis is saved with `PUT /subjects/{subject_id}/ml-confidence` as a numeric confidence score plus student-facing feedback. Deploy [`backend/firestore.rules`](backend/firestore.rules) to restrict users to their own data.
+
+### Adaptive quiz API
+
+The adaptive quiz workflow is implemented in the FastAPI backend. It uses the verified Firebase token as the student identity, not a client-supplied student ID. Gemini is called only by the backend and its response is parsed and validated before a quiz is stored.
+
+`POST /quiz/generate`
+
+```json
+{
+  "subject": "Data Structures",
+  "module": "Trees",
+  "num_questions": 10,
+  "confidence": "weak"
+}
+```
+
+The response has `quiz_id`, adaptive `difficulty`, current `performance`, and questions without answer keys.
+
+`POST /quiz/submit`
+
+```json
+{
+  "quiz_id": "generated-quiz-id",
+  "answers": [{"question_id": "1", "selected_answer": "B"}]
+}
+```
+
+The backend scores the stored answer key, stores the attempt under the existing `subjects/{subjectId}/quizAttempts` collection, and returns score, question results, performance trend, and `next_difficulty`. Both routes require `Authorization: Bearer <Firebase ID token>`.
+
+Performance is a deterministic, explainable rules service—not a trained ML model. It calculates the current/previous/average score, a trend from the recent scores, repeated missed concepts as weak areas, and a gradual next-difficulty recommendation. The threshold and difficulty mappings live in `backend/app/services/performance.py`.
 
 ## Frontend development
 # React + Vite

@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     firebase_service_account_path: str | None = None
     firebase_project_id: str | None = None
     allowed_origins: str = "http://localhost:5173"
+    gemini_api_key: str | None = None
+    # The Flash-Lite alias is the fastest text/JSON model available to this API.
+    gemini_model: str = "gemini-flash-lite-latest"
 
     model_config = SettingsConfigDict(
         env_file=Path(__file__).resolve().parents[1] / ".env",

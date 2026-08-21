@@ -103,7 +103,10 @@ function Dashboard() {
             <div className="stat-box-icon icon-amber">📝</div>
           </div>
           <div className="stat-box-value">{quizzesCompleted}</div>
-          <div className="stat-box-sub green">{quizzesCompleted > 0 ? `${avgAccuracy}% Average Accuracy` : "Take a quiz to see accuracy"}</div>
+          <div className="stat-box-sub muted">{quizzesCompleted > 0 ? `${avgAccuracy}% Average Accuracy` : "Take a quiz to see accuracy"}</div>
+          <div className="progress-bar-track">
+            <div className="progress-bar-fill fill-indigo" style={{ width: `${avgAccuracy}%` }} />
+          </div>
         </div>
 
         <div className="stat-box-card">
@@ -112,117 +115,60 @@ function Dashboard() {
             <div className="stat-box-icon icon-rose">🔥</div>
           </div>
           <div className="stat-box-value">{quizzesCompleted > 0 ? "1 Day" : "0 Days"}</div>
-          <div className="stat-box-sub green">Exam in {daysLeft}</div>
+          <div className="stat-box-sub muted">Exam in {daysLeft}</div>
+          <div className="progress-bar-track">
+            <div className="progress-bar-fill fill-indigo" style={{ width: quizzesCompleted > 0 ? "30%" : "0%" }} />
+          </div>
         </div>
       </div>
 
       {/* MAIN DASHBOARD GRID */}
       <div className="dashboard-main-grid">
-        {/* LEFT COLUMN: AI INSIGHT & TODAY'S TIMELINE */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {/* AI RECOMMENDATION BANNER */}
-          <div className="ai-recommendation-card">
-            <h3>✦ AI Study Recommendation</h3>
-            <p>
-              {topics.length > 0
-                ? `Based on your target date and ${confidence} confidence level, we recommend focusing on your syllabus topics and taking practice quizzes.`
-                : "Enter your syllabus topics in Study Setup or Syllabus Management to receive custom AI study recommendations."}
-            </p>
-            <button className="btn-card-action" onClick={() => navigate(topics.length > 0 ? "/quiz" : "/syllabus")}>
-              {topics.length > 0 ? "Take Adaptive Quiz →" : "Set Up Syllabus →"}
+        {/* FULL-WIDTH AI RECOMMENDATION */}
+        <div className="ai-recommendation-card">
+          <h3>✦ AI Study Recommendation</h3>
+          <p>
+            {topics.length > 0
+              ? `Based on your target date and ${confidence} confidence level, focus on your planned topics and use short review sessions before practice.`
+              : "Add subjects and modules in Smart Timetable to receive personalized study recommendations."}
+          </p>
+        </div>
+
+        {/* TODAY'S PLAN PREVIEW */}
+        <div className="card-container">
+          <div className="card-header-flex">
+            <h3><span>📅</span> Today's Smart Plan</h3>
+            <button
+              style={{ color: "var(--primary)", fontWeight: "600", fontSize: "13px" }}
+              onClick={() => navigate("/timetable")}
+            >
+              Customize Schedule →
             </button>
           </div>
 
-          {/* TODAY'S PLAN PREVIEW */}
-          <div className="card-container">
-            <div className="card-header-flex">
-              <h3><span>📅</span> Today's Smart Plan</h3>
-              <button
-                style={{ color: "var(--primary)", fontWeight: "600", fontSize: "13px" }}
-                onClick={() => navigate("/timetable")}
-              >
-                Customize Schedule →
-              </button>
-            </div>
-
-            <div className="plan-timeline-list">
-              {todaySchedule.length > 0 ? (
-                todaySchedule.map((slot) => (
-                  <div className="plan-timeline-item" key={slot.id}>
-                    <div className="timeline-time-col">{slot.time}</div>
-                    <div className="timeline-info-col">
-                      <strong>{slot.topic}</strong>
-                      <span className={`timeline-tag ${slot.tagClass || "tag-practice"}`}>{slot.type || "Study"}</span>
-                    </div>
-                    <div className="timeline-action-col">
-                      <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{slot.duration}</span>
-                      <button className="btn-small-action" onClick={() => navigate("/timetable")}>
-                        Start
-                      </button>
-                    </div>
+          <div className="plan-timeline-list">
+            {todaySchedule.length > 0 ? (
+              todaySchedule.map((slot) => (
+                <div className="plan-timeline-item" key={slot.id}>
+                  <div className="timeline-time-col">{slot.time}</div>
+                  <div className="timeline-info-col">
+                    <strong>{slot.topic}</strong>
+                    <span className={`timeline-tag ${slot.tagClass || "tag-practice"}`}>{slot.type || "Study"}</span>
                   </div>
-                ))
-              ) : topics.length > 0 ? (
-                topics.slice(0, 3).map((topic, idx) => (
-                  <div className="plan-timeline-item" key={idx}>
-                    <div className="timeline-time-col">{idx === 0 ? "09:00 AM" : idx === 1 ? "11:00 AM" : "02:00 PM"}</div>
-                    <div className="timeline-info-col">
-                      <strong>{topic}</strong>
-                      <span className="timeline-tag tag-practice">Study Session</span>
-                    </div>
-                    <div className="timeline-action-col">
-                      <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>45 min</span>
-                      <button className="btn-small-action" onClick={() => navigate("/timetable")}>
-                        Start
-                      </button>
-                    </div>
+                  <div className="timeline-action-col">
+                    <span style={{ fontSize: "12px", color: "var(--text-muted)" }}>{slot.duration}</span>
+                    <button className="btn-small-action" onClick={() => navigate("/timetable")}>Start</button>
                   </div>
-                ))
-              ) : (
-                <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "14px" }}>
-                  No study timetable generated yet. Add your syllabus and click <strong>Generate Smart Plan</strong> in the timetable view.
                 </div>
-              )}
-            </div>
+              ))
+            ) : topics.length > 0 ? (
+              topics.slice(0, 3).map((topic, idx) => <div className="plan-timeline-item" key={idx}><div className="timeline-time-col">{idx === 0 ? "09:00 AM" : idx === 1 ? "11:00 AM" : "02:00 PM"}</div><div className="timeline-info-col"><strong>{topic}</strong><span className="timeline-tag tag-practice">Study Session</span></div><div className="timeline-action-col"><span style={{ fontSize: "12px", color: "var(--text-muted)" }}>45 min</span><button className="btn-small-action" onClick={() => navigate("/timetable")}>Start</button></div></div>)
+            ) : <div style={{ padding: "20px", textAlign: "center", color: "var(--text-muted)", fontSize: "14px" }}>No study timetable generated yet. Add subjects and modules in <strong>Smart Timetable</strong>, then generate your plan.</div>}
           </div>
         </div>
 
-        {/* RIGHT COLUMN: SYLLABUS & WEAK TOPICS */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
-          {/* SYLLABUS CARD */}
-          <div className="card-container">
-            <div className="card-header-flex">
-              <h3><span>📚</span> Current Syllabus</h3>
-              <span style={{ fontSize: "12px", background: "var(--primary-light)", color: "var(--primary)", padding: "4px 10px", borderRadius: "12px", fontWeight: "700" }}>
-                {topics.length} Topics
-              </span>
-            </div>
-
-            <div style={{ marginBottom: "16px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: "13px", marginBottom: "6px" }}>
-                <span style={{ color: "var(--text-muted)" }}>Syllabus Completion</span>
-                <strong style={{ color: "var(--primary)" }}>{syllabusCompletion}%</strong>
-              </div>
-              <div className="progress-bar-track">
-                <div className="progress-bar-fill fill-indigo" style={{ width: `${syllabusCompletion}%` }} />
-              </div>
-            </div>
-
-            <div style={{ fontSize: "13px", color: "var(--text-muted)", marginBottom: "20px" }}>
-              Exam Date: <strong style={{ color: "var(--text-main)" }}>{examDate || "Not set"}</strong>
-            </div>
-
-            <button
-              className="btn-secondary-nav"
-              style={{ width: "100%", textAlign: "center" }}
-              onClick={() => navigate("/syllabus")}
-            >
-              Manage Syllabus & Topics →
-            </button>
-          </div>
-
-          {/* NEEDS ATTENTION ALERT */}
-          <div className="card-container">
+        {/* NEEDS ATTENTION ALERT */}
+        <div className="card-container">
             <div className="card-header-flex">
               <h3><span>⚠️</span> Needs Attention</h3>
             </div>
@@ -252,7 +198,6 @@ function Dashboard() {
                 </div>
               )}
             </div>
-          </div>
         </div>
       </div>
     </div>
