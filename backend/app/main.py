@@ -133,9 +133,21 @@ from fastapi import Request
 
 @app.post("/subjects", status_code=status.HTTP_201_CREATED)
 async def create_subject(request: Request, payload: SubjectCreate, user: dict = Depends(current_user)) -> dict:
-    body = await request.body()
-    print(f"RAW BODY RECEIVED: {body}")
-    doc = user_ref(user["uid"]).collection("subjects").document()
+    user_doc = user_ref(user["uid"])
+    # Check if a subject with this name already exists to prevent duplicate entries
+    existing = list(user_doc.collection("subjects").where("name", "==", payload.name).limit(1).stream())
+    if existing:
+        doc = existing[0].reference
+        doc.update({
+            "name": payload.name,
+            "syllabus": payload.syllabus,
+            "examDate": payload.exam_date.isoformat(),
+            "initialConfidence": payload.initial_confidence,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        })
+        return {"id": doc.id}
+
+    doc = user_doc.collection("subjects").document()
     doc.set({
         "name": payload.name,
         "syllabus": payload.syllabus,
@@ -150,6 +162,54 @@ async def create_subject(request: Request, payload: SubjectCreate, user: dict = 
         "updatedAt": firestore.SERVER_TIMESTAMP,
     })
     return {"id": doc.id}
+
+
+@app.put("/subjects/{subject_id}/confidence")
+def update_subject_confidence_endpoint(subject_id: str, payload: dict, user: dict = Depends(current_user)) -> dict:
+    subject = user_ref(user["uid"]).collection("subjects").document(subject_id)
+    if not subject.get().exists:
+        raise HTTPException(status_code=404, detail="Subject not found")
+    raw_conf = payload.get("confidence", "Average")
+    conf_map = {
+        "Weak": "Beginner", "Average": "Intermediate", "Strong": "Advanced",
+        "Beginner": "Beginner", "Intermediate": "Intermediate", "Advanced": "Advanced"
+    }
+    api_conf = conf_map.get(raw_conf, "Intermediate")
+    subject.update({
+        "initialConfidence": api_conf,
+        "mlConfidenceFeedback": raw_conf,
+        "updatedAt": firestore.SERVER_TIMESTAMP,
+    })
+    return {"updated": True, "confidence": api_conf}
+
+
+@app.get("/subjects")
+def get_subjects(user: dict = Depends(current_user)) -> list:
+    """Return all subjects (with nested modules) for the authenticated user."""
+    uid = user["uid"]
+    subject_docs = list(user_ref(uid).collection("subjects").stream())
+    result = []
+    for doc in subject_docs:
+        data = doc.to_dict()
+        module_docs = list(doc.reference.collection("modules").stream())
+        modules = [
+            {
+                "id": m.id,
+                "name": m.to_dict().get("name", ""),
+                "weightage": m.to_dict().get("weightage", 0),
+            }
+            for m in module_docs
+        ]
+        result.append({
+            "id": doc.id,
+            "name": data.get("name", ""),
+            "examDate": data.get("examDate", ""),
+            "totalMarks": data.get("totalMarks", 100),
+            "initialConfidence": data.get("initialConfidence", "Intermediate"),
+            "syllabus": data.get("syllabus", ""),
+            "modules": modules,
+        })
+    return result
 
 
 @app.post("/subjects/{subject_id}/modules", status_code=status.HTTP_201_CREATED)
@@ -284,11 +344,66 @@ def submit_adaptive_quiz(payload: AdaptiveQuizSubmitRequest, user: dict = Depend
         "quizScore": score, "attempts": performance["attempt_count"], "adaptivePerformance": performance,
         "updatedAt": firestore.SERVER_TIMESTAMP,
     }, merge=True)
-    logger.info("Adaptive quiz submitted quiz_id=%s score=%s performance=%s", quiz.id, score, performance["performance_level"])
+
+    # ── ML Feedback Prediction & Adaptive Subject Confidence Update ───────────
+    scores = [float(att.get("score", 0)) for att in attempts if att.get("score") is not None]
+    prev_score = scores[-2] if len(scores) > 1 else (scores[0] if scores else 0.0)
+
+    # Resolve days to exam
+    subject_doc = subject.get()
+    subject_data = subject_doc.to_dict() if subject_doc.exists else {}
+    exam_date_str = subject_data.get("examDate")
+    days_to_exam = 30
+    if exam_date_str:
+        try:
+            from datetime import date
+            ed = date.fromisoformat(str(exam_date_str).split("T")[0])
+            days_to_exam = max(0, (ed - date.today()).days)
+        except Exception:
+            days_to_exam = 30
+
+    ml_payload = {
+        "subject": stored.get("subject", "General"),
+        "topic": stored.get("module", "General"),
+        "study_hours": 2.0,
+        "quiz_score": score,
+        "previous_score": prev_score,
+        "attempts": len(attempts),
+        "time_taken": 10.0,
+        "days_to_exam": days_to_exam,
+        "last_studied_days": 0,
+        "topic_difficulty": stored.get("difficulty", "Medium"),
+        "scores": scores,
+    }
+
+    try:
+        ml_feedback = ml_get_feedback(ml_payload)
+    except Exception as exc:
+        logger.warning("ML prediction fallback for user=%s: %s", uid, exc)
+        ml_feedback = {
+            "level": "Weak" if score < 50 else "Strong" if score >= 80 else "Average",
+            "accuracy": score,
+            "trend": "improving" if score > prev_score else "declining" if score < prev_score else "stable",
+        }
+
+    # Map ML level -> API confidence (Beginner / Intermediate / Advanced)
+    confidence_map = {"Weak": "Beginner", "Average": "Intermediate", "Strong": "Advanced"}
+    api_confidence = confidence_map.get(ml_feedback["level"], "Intermediate")
+
+    subject.update({
+        "initialConfidence": api_confidence,
+        "mlConfidenceScore": ml_feedback.get("accuracy", score),
+        "mlConfidenceFeedback": ml_feedback.get("level"),
+        "updatedAt": firestore.SERVER_TIMESTAMP,
+    })
+
+    logger.info("Adaptive quiz submitted quiz_id=%s score=%s ml_level=%s", quiz.id, score, ml_feedback["level"])
     return {
         "score": score, "correct": correct, "incorrect": total - correct, "total": total,
         "difficulty": stored["difficulty"], "next_difficulty": performance["next_difficulty"],
         "performance": performance, "question_results": question_results,
+        "ml_feedback": ml_feedback,
+        "updated_confidence": ml_feedback["level"],
     }
 
 

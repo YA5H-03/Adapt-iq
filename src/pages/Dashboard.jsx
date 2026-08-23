@@ -73,6 +73,49 @@ function Dashboard() {
   const [recLoading, setRecLoading] = useState(false);
   const [recError, setRecError] = useState("");
 
+  // ── Exam Calendar state ───────────────────────────────────────────────────
+  const today = new Date();
+  const [calYear, setCalYear] = useState(today.getFullYear());
+  const [calMonth, setCalMonth] = useState(today.getMonth()); // 0-indexed
+
+  // Collect all exam dates from subjects in localStorage
+  const subjects = (currentSyllabus.subjects || []).filter((s) => s.examDate);
+  const examDateMap = {}; // "YYYY-MM-DD" -> [subjectName, ...]
+  subjects.forEach((s) => {
+    if (s.examDate) {
+      if (!examDateMap[s.examDate]) examDateMap[s.examDate] = [];
+      examDateMap[s.examDate].push(s.name || "Exam");
+    }
+  });
+  // Also include legacy single examDate
+  if (examDate && !examDateMap[examDate]) examDateMap[examDate] = ["Exam"];
+
+  const MONTH_NAMES = ["January","February","March","April","May","June",
+    "July","August","September","October","November","December"];
+  const DAY_LABELS = ["Su","Mo","Tu","We","Th","Fr","Sa"];
+
+  const calFirstDay = new Date(calYear, calMonth, 1).getDay();
+  const calDaysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+
+  const prevMonth = () => {
+    if (calMonth === 0) { setCalMonth(11); setCalYear(y => y - 1); }
+    else setCalMonth(m => m - 1);
+  };
+  const nextMonth = () => {
+    if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1); }
+    else setCalMonth(m => m + 1);
+  };
+
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const calDayStr = (d) => `${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+
+  // Assign a unique color per subject
+  const EXAM_COLORS = ["#ef4444","#f59e0b","#8b5cf6","#06b6d4","#10b981","#f97316"];
+  const subjectColorMap = {};
+  subjects.forEach((s, i) => { subjectColorMap[s.name] = EXAM_COLORS[i % EXAM_COLORS.length]; });
+  if (examDate && !subjectColorMap["Exam"]) subjectColorMap["Exam"] = EXAM_COLORS[0];
+
+
   useEffect(() => {
     // Only call /feedback/recommend when we have at least one quiz attempt
     if (quizAttempts.length === 0) return;
@@ -440,6 +483,133 @@ function Dashboard() {
             )}
           </div>
         </div>
+      </div>
+
+      {/* EXAM CALENDAR */}
+      <div className="card-container" style={{ marginTop: "28px" }}>
+        <div className="card-header-flex" style={{ marginBottom: "16px" }}>
+          <h3 style={{ margin: 0 }}>📆 Exam Calendar</h3>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <button
+              onClick={prevMonth}
+              style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "8px", padding: "4px 12px", cursor: "pointer", fontWeight: "700", fontSize: "16px" }}
+            >‹</button>
+            <span style={{ fontWeight: "700", fontSize: "15px", minWidth: "140px", textAlign: "center" }}>
+              {MONTH_NAMES[calMonth]} {calYear}
+            </span>
+            <button
+              onClick={nextMonth}
+              style={{ background: "var(--bg-surface)", border: "1px solid var(--border)", borderRadius: "8px", padding: "4px 12px", cursor: "pointer", fontWeight: "700", fontSize: "16px" }}
+            >›</button>
+          </div>
+        </div>
+
+        {/* Day labels */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "4px", marginBottom: "6px" }}>
+          {DAY_LABELS.map(d => (
+            <div key={d} style={{ textAlign: "center", fontSize: "12px", fontWeight: "700", color: "var(--text-muted)", padding: "4px 0" }}>{d}</div>
+          ))}
+        </div>
+
+        {/* Calendar grid */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "4px" }}>
+          {/* Empty cells before month start */}
+          {Array.from({ length: calFirstDay }).map((_, i) => (
+            <div key={`empty-${i}`} />
+          ))}
+          {/* Day cells */}
+          {Array.from({ length: calDaysInMonth }, (_, i) => i + 1).map((day) => {
+            const ds = calDayStr(day);
+            const isToday = ds === todayStr;
+            const examNames = examDateMap[ds];
+            const isExam = !!examNames;
+            const examColor = isExam ? (subjectColorMap[examNames[0]] || "#ef4444") : null;
+            return (
+              <div
+                key={day}
+                title={isExam ? `📅 ${examNames.join(", ")}` : ""}
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: "44px",
+                  borderRadius: "10px",
+                  cursor: isExam ? "default" : "default",
+                  background: isExam
+                    ? `${examColor}18`
+                    : isToday
+                    ? "var(--primary-light)"
+                    : "transparent",
+                  border: isToday
+                    ? "2px solid var(--primary)"
+                    : isExam
+                    ? `2px solid ${examColor}55`
+                    : "2px solid transparent",
+                  transition: "background 0.15s",
+                }}
+              >
+                <span style={{
+                  fontSize: "13px",
+                  fontWeight: isToday || isExam ? "700" : "500",
+                  color: isToday ? "var(--primary)" : isExam ? examColor : "var(--text-main)",
+                }}>
+                  {day}
+                </span>
+                {isExam && (
+                  <div style={{ display: "flex", gap: "2px", marginTop: "2px", flexWrap: "wrap", justifyContent: "center" }}>
+                    {examNames.slice(0, 3).map((name, ni) => (
+                      <span key={ni} style={{
+                        width: "6px", height: "6px", borderRadius: "50%",
+                        background: subjectColorMap[name] || examColor,
+                        display: "inline-block",
+                      }} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Legend */}
+        {Object.keys(examDateMap).length > 0 && (
+          <div style={{ marginTop: "20px", borderTop: "1px solid var(--border)", paddingTop: "14px" }}>
+            <p style={{ fontSize: "12px", fontWeight: "700", color: "var(--text-muted)", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Exam Schedule</p>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "10px" }}>
+              {Object.entries(examDateMap).sort(([a],[b]) => a.localeCompare(b)).map(([date, names]) => {
+                const d = new Date(`${date}T00:00:00`);
+                const color = subjectColorMap[names[0]] || "#ef4444";
+                const daysUntil = Math.ceil((d - today) / (1000*60*60*24));
+                return (
+                  <div key={date} style={{
+                    display: "flex", alignItems: "center", gap: "8px",
+                    background: `${color}12`, border: `1px solid ${color}44`,
+                    borderRadius: "10px", padding: "8px 14px",
+                  }}>
+                    <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: color, flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: "13px", fontWeight: "700", color: "var(--text-main)" }}>
+                        {names.join(" & ")}
+                      </div>
+                      <div style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                        {d.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                        {daysUntil > 0 ? ` · ${daysUntil} days away` : daysUntil === 0 ? " · Today!" : " · Past"}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {Object.keys(examDateMap).length === 0 && (
+          <div style={{ textAlign: "center", color: "var(--text-muted)", fontSize: "13px", padding: "20px 0" }}>
+            No exam dates found. Add subjects with exam dates in <strong>Smart Timetable</strong>.
+          </div>
+        )}
       </div>
     </div>
   );

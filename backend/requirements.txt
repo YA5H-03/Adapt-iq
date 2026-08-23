@@ -8,7 +8,7 @@ httpx==0.28.1
 python-dotenv==1.1.1
 google-genai>=1.0.0
 # ML Integration dependencies
-scikit-learn==1.6.1
+scikit-learn==1.7.2
 pandas>=2.2.0
 numpy>=1.26.0
 joblib>=1.4.0
